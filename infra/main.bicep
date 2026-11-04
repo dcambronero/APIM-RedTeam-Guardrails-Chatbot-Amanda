@@ -24,8 +24,8 @@ param agentImage string
 param toolsImage string
 
 // ---- Modelos -------------------------------------------------------
-param chatModelName string = 'gpt-4o-mini'
-param chatModelVersion string = '2024-07-18'
+param chatModelName string = 'gpt-5.4-mini'
+param chatModelVersion string = '2026-03-17'
 param chatDeploymentSku string = 'GlobalStandard'
 @description('Capacidad en miles de tokens por minuto')
 param chatCapacity int = 50
@@ -63,7 +63,7 @@ var names = {
   apim: 'apim-amanda-${suffix}'
 }
 var searchIndex = 'amanda-kb'
-var aoaiApiVersion = '2024-10-21'
+var aoaiApiVersion = '2025-04-01-preview'
 
 // =====================================================================
 //  Observabilidad

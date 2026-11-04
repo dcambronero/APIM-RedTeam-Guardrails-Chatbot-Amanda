@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Valida, ANTES de desplegar, que tu usuario y tu suscripción pueden levantar el lab Amanda.
   No crea recursos de Azure (solo crea y borra una app registration de prueba).
@@ -8,7 +8,7 @@
 #>
 param(
     [string]$Location = "eastus2",
-    [string]$ChatModel = "gpt-4o-mini",
+    [string]$ChatModel = "gpt-5.4-mini",
     [string]$ChatSku = "GlobalStandard",
     [int]$ChatCapacity = 50,
     [string]$EmbedModel = "text-embedding-3-small",

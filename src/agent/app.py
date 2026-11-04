@@ -27,9 +27,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 APIM = os.getenv("APIM_GATEWAY_URL", "").rstrip("/")
 APIM_KEY = os.getenv("APIM_KEY", "")
 BACKEND_KEY = os.getenv("BACKEND_KEY", "")
-CHAT_DEPLOYMENT = os.getenv("CHAT_DEPLOYMENT", "gpt-4o-mini")
+CHAT_DEPLOYMENT = os.getenv("CHAT_DEPLOYMENT", "gpt-5.4-mini")
 EMBED_DEPLOYMENT = os.getenv("EMBED_DEPLOYMENT", "text-embedding-3-small")
-API_VERSION = os.getenv("AOAI_API_VERSION", "2024-10-21")
+API_VERSION = os.getenv("AOAI_API_VERSION", "2025-04-01-preview")
 SEARCH_INDEX = os.getenv("SEARCH_INDEX", "amanda-kb")
 MAX_TOOL_ROUNDS = 5
 STATIC = Path(__file__).parent / "static"
@@ -190,7 +190,7 @@ async def call_tool(name: str, arguments: dict, conversation: list[dict]) -> dic
 async def stream_model(messages: list[dict]) -> AsyncIterator[tuple[str, object]]:
     """Llama al modelo en streaming y emite ('delta', texto) o ('tool_calls', lista)."""
     url = f"{APIM}/openai/deployments/{CHAT_DEPLOYMENT}/chat/completions?api-version={API_VERSION}"
-    body = {"messages": messages, "tools": TOOLS, "stream": True, "temperature": 0.3}
+    body = {"messages": messages, "tools": TOOLS, "stream": True, "reasoning_effort": "low"}
     calls: dict[int, dict] = {}
     async with http.stream("POST", url, headers={"api-key": APIM_KEY}, json=body) as r:
         if r.status_code >= 400:
