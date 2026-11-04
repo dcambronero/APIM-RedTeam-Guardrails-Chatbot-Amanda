@@ -80,7 +80,7 @@ foreach ($m in @(@{n=$ChatModel; s=$ChatSku; c=$ChatCapacity}, @{n=$EmbedModel; 
     $usage = az cognitiveservices usage list -l $Location -o json 2>$null | ConvertFrom-Json |
              Where-Object { $_.name.value -eq "OpenAI.$($m.s).$($m.n)" }
     if ($usage) {
-        $free = [int]$usage.limit - [int]$usage.currentValue
+        $usage = @($usage)[0]; $free = [int]$usage.limit - [int]$usage.currentValue
         if ($free -ge $m.c) { Add-Result "Cuota $($m.n)" "PASS" "$free K TPM libres ($($m.s), se usan $($m.c))" }
         else { Add-Result "Cuota $($m.n)" "FAIL" "Solo $free K TPM libres; baja la capacidad o cambia de región" }
     } else { Add-Result "Cuota $($m.n)" "WARN" "No pude leer la cuota; el modelo sí está disponible" }
