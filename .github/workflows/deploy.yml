@@ -1,0 +1,110 @@
+name: "Fase I · Desplegar Amanda"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC hacia Azure (sin secretos de larga duración)
+  contents: read
+
+concurrency:
+  group: amanda-deploy
+  cancel-in-progress: false
+
+env:
+  RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+  LOCATION: ${{ vars.AZURE_LOCATION }}
+  PUBLISHER_EMAIL: ${{ vars.APIM_PUBLISHER_EMAIL }}
+  SEARCH_SKU: ${{ vars.SEARCH_SKU || 'basic' }}
+  SEARCH_LOCATION: ${{ vars.SEARCH_LOCATION || vars.AZURE_LOCATION }}
+  TAG: ${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar variables del repo
+        run: |
+          for v in RG LOCATION PUBLISHER_EMAIL; do
+            if [ -z "${!v}" ]; then echo "::error::Falta la variable $v. Corre scripts/bootstrap.ps1"; exit 1; fi
+          done
+
+      - name: Login a Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "1/6 · Container Registry"
+        run: |
+          ACR=$(az deployment group create -g "$RG" -n acr \
+                 --template-file infra/acr.bicep -p location="$LOCATION" \
+                 --query properties.outputs.acrName.value -o tsv)
+          echo "ACR=$ACR" >> $GITHUB_ENV
+          echo "ACR_SERVER=$ACR.azurecr.io" >> $GITHUB_ENV
+
+      - name: "2/6 · Build & push de imágenes"
+        run: |
+          az acr login --name "$ACR"
+          docker build -t "$ACR_SERVER/amanda-agent:$TAG" src/agent
+          docker build -t "$ACR_SERVER/amanda-tools:$TAG" src/tools
+          docker push "$ACR_SERVER/amanda-agent:$TAG"
+          docker push "$ACR_SERVER/amanda-tools:$TAG"
+
+      - name: "3/6 · Infraestructura (APIM, OpenAI, Search, Container Apps) ~15-30 min"
+        run: |
+          az deployment group create -g "$RG" -n main \
+            --template-file infra/main.bicep \
+            -p location="$LOCATION" \
+               publisherEmail="$PUBLISHER_EMAIL" \
+               acrName="$ACR" \
+               agentImage="$ACR_SERVER/amanda-agent:$TAG" \
+               toolsImage="$ACR_SERVER/amanda-tools:$TAG" \
+               searchSku="$SEARCH_SKU" \
+               searchLocation="$SEARCH_LOCATION" \
+            --query properties.outputs -o json > outputs.json
+          jq -r 'to_entries[] | "\(.key)=\(.value.value)"' outputs.json | tee -a $GITHUB_ENV
+
+      - name: "4/6 · Cargar base de conocimiento (RAG)"
+        run: |
+          pip install --quiet httpx==0.28.1
+          export AOAI_ENDPOINT=$(az cognitiveservices account show -g "$RG" -n "$aoaiName" --query properties.endpoint -o tsv)
+          export AOAI_KEY=$(az cognitiveservices account keys list -g "$RG" -n "$aoaiName" --query key1 -o tsv)
+          export SEARCH_ENDPOINT="https://$searchName.search.windows.net"
+          export SEARCH_ADMIN_KEY=$(az search admin-key show -g "$RG" --service-name "$searchName" --query primaryKey -o tsv)
+          export EMBED_DEPLOYMENT="$embedDeployment" SEARCH_INDEX="$searchIndex"
+          echo "::add-mask::$AOAI_KEY"; echo "::add-mask::$SEARCH_ADMIN_KEY"
+          python scripts/seed_rag.py
+
+      - name: "5/6 · Smoke test (end-to-end por internet)"
+        run: |
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o resp.json -w "%{http_code}" -X POST "$chatCompletionsUrl" \
+              -H "Content-Type: application/json" \
+              -d '{"messages":[{"role":"user","content":"¿Cuál es el horario de las sucursales?"}],"stream":false,"trace":true}')
+            if [ "$CODE" = "200" ] && jq -e '.choices[0].message.content | length > 0' resp.json >/dev/null; then
+              echo "✔ Amanda respondió:"; jq -r '.choices[0].message.content' resp.json
+              jq -c '.amanda_trace' resp.json
+              exit 0
+            fi
+            echo "Intento $i: HTTP $CODE, esperando a que los servicios estén listos..."; sleep 20
+          done
+          cat resp.json; exit 1
+
+      - name: "6/6 · Resumen"
+        if: always()
+        run: |
+          {
+            echo "## 💗 Amanda está en línea"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Chat (UI)** | $chatUrl |"
+            echo "| **Endpoint OpenAI-compatible** | \`$chatCompletionsUrl\` |"
+            echo "| APIM | \`$apimName\` |"
+            echo "| Resource group | \`$RG\` |"
+          } >> $GITHUB_STEP_SUMMARY

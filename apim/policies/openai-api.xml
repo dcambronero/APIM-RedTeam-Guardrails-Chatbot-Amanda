@@ -1,0 +1,22 @@
+<!--
+  API interna /openai  (Azure OpenAI)
+  El agente se autentica con su subscription key de APIM (header api-key);
+  APIM la reemplaza por la key real de Azure OpenAI. El agente nunca ve la key del modelo.
+-->
+<policies>
+    <inbound>
+        <base />
+        <set-header name="api-key" exists-action="override">
+            <value>{{aoai-key}}</value>
+        </set-header>
+    </inbound>
+    <backend>
+        <forward-request timeout="120" buffer-response="false" />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

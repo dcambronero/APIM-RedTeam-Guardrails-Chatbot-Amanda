@@ -1,0 +1,21 @@
+<!--
+  API interna /rag  (Azure AI Search, key de solo lectura)
+-->
+<policies>
+    <inbound>
+        <base />
+        <set-header name="api-key" exists-action="override">
+            <value>{{search-query-key}}</value>
+        </set-header>
+    </inbound>
+    <backend>
+        <forward-request timeout="30" />
+    </backend>
+    <outbound>
+        <base />
+        <!-- FASE III.3 · Guardrail de RAG: inspeccionar los chunks recuperados aquí -->
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

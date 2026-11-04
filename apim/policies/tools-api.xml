@@ -1,0 +1,22 @@
+<!--
+  API interna /tools  (servicio de herramientas de Banco Aurora)
+-->
+<policies>
+    <inbound>
+        <base />
+        <set-header name="x-backend-key" exists-action="override">
+            <value>{{backend-key}}</value>
+        </set-header>
+        <!-- FASE III.4 · Guardrail de TOOL CALL (argumentos + historial): aquí -->
+    </inbound>
+    <backend>
+        <forward-request timeout="30" />
+    </backend>
+    <outbound>
+        <base />
+        <!-- FASE III.4 · Guardrail de TOOL RESPONSE: aquí -->
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

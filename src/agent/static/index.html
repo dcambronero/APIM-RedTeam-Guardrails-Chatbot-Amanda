@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Amanda · Banco Aurora</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path fill='%23D9577F' d='M16 2l3.2 9.6L29 14l-9.8 3.2L16 30l-3.2-12.8L3 14l9.8-2.4z'/></svg>" />
+<style>
+  :root{
+    --bg:#FBF7F4; --surface:#FFFFFF; --ink:#2B2725; --muted:#8A807B; --line:#EDE4DF;
+    --pink:#D9577F; --pink-600:#C2416A; --pink-50:#FDF0F4; --pink-100:#F9DCE6;
+    --user:#F6E8EC; --shadow:0 1px 2px rgba(60,30,40,.04),0 8px 24px rgba(60,30,40,.06);
+    --serif: "Tiempos Headline","Iowan Old Style","Palatino Linotype",Georgia,serif;
+    --sans: "Segoe UI Variable","Segoe UI",-apple-system,BlinkMacSystemFont,Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font:15.5px/1.65 var(--sans);display:flex;flex-direction:column}
+  /* Header */
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 22px;position:sticky;top:0;
+    background:linear-gradient(var(--bg) 70%,transparent);z-index:5}
+  .brand{display:flex;gap:10px;align-items:center;font-family:var(--serif);font-size:19px;letter-spacing:.2px}
+  .brand small{font-family:var(--sans);font-size:12px;color:var(--muted);margin-left:4px}
+  .spark{width:26px;height:26px;color:var(--pink)}
+  .btn-ghost{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:7px 12px;
+    font:500 13px var(--sans);cursor:pointer;display:flex;gap:6px;align-items:center;transition:.15s}
+  .btn-ghost:hover{border-color:var(--pink-100);background:var(--pink-50)}
+  /* Main */
+  main{flex:1;overflow-y:auto;scroll-behavior:smooth}
+  .col{max-width:760px;margin:0 auto;padding:0 20px}
+  /* Welcome */
+  .welcome{padding:12vh 0 24px;text-align:center;animation:fade .5s ease}
+  .welcome .spark{width:44px;height:44px;margin-bottom:14px;animation:spin 14s linear infinite}
+  .welcome h1{font-family:var(--serif);font-weight:400;font-size:40px;margin:0 0 6px;letter-spacing:-.3px}
+  .welcome h1 em{font-style:normal;color:var(--pink)}
+  .welcome p{color:var(--muted);margin:0 0 28px}
+  .chips{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;text-align:left}
+  .chip{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;cursor:pointer;
+    font-size:14px;transition:.18s;box-shadow:var(--shadow)}
+  .chip:hover{border-color:var(--pink-100);transform:translateY(-1px)}
+  .chip b{display:block;font-weight:600;font-size:13px;color:var(--pink-600);margin-bottom:2px}
+  /* Messages */
+  .msg{display:flex;gap:14px;margin:22px 0;animation:fade .25s ease}
+  .msg.user{justify-content:flex-end}
+  .msg.user .bubble{background:var(--user);border-radius:18px 18px 4px 18px;padding:10px 16px;max-width:80%;white-space:pre-wrap}
+  .avatar{flex:0 0 30px;height:30px;border-radius:50%;background:var(--pink-50);display:grid;place-items:center;margin-top:2px}
+  .avatar svg{width:17px;height:17px;color:var(--pink)}
+  .assistant .content{flex:1;min-width:0}
+  .content p{margin:0 0 10px}.content p:last-child{margin-bottom:0}
+  .content ul,.content ol{margin:4px 0 10px;padding-left:22px}
+  .content code{background:var(--pink-50);padding:1px 5px;border-radius:5px;font-size:13.5px}
+  .content pre{background:#2B2725;color:#F7EFEC;padding:12px 14px;border-radius:10px;overflow-x:auto;font-size:13px}
+  .content strong{font-weight:600}
+  .traces{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .trace{font-size:12px;border:1px solid var(--pink-100);background:var(--pink-50);color:var(--pink-600);
+    border-radius:999px;padding:2px 10px;display:inline-flex;gap:5px;align-items:center}
+  .trace.err{border-color:#F3C7C7;background:#FDF1F1;color:#B54141}
+  .cursor{display:inline-block;width:8px;height:16px;background:var(--pink);border-radius:2px;vertical-align:-2px;
+    margin-left:2px;animation:blink 1s steps(2) infinite}
+  .thinking{display:flex;gap:5px;padding:8px 0}
+  .thinking span{width:7px;height:7px;border-radius:50%;background:var(--pink);opacity:.35;animation:pulse 1.2s infinite}
+  .thinking span:nth-child(2){animation-delay:.15s}.thinking span:nth-child(3){animation-delay:.3s}
+  .error{color:#B54141;background:#FDF1F1;border:1px solid #F3C7C7;border-radius:10px;padding:8px 12px;font-size:14px}
+  /* Composer */
+  footer{padding:10px 0 18px;background:linear-gradient(transparent,var(--bg) 30%)}
+  .composer{background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);
+    padding:12px 12px 10px 18px;display:flex;flex-direction:column;gap:6px;transition:.2s}
+  .composer:focus-within{border-color:var(--pink-100);box-shadow:0 0 0 4px rgba(217,87,127,.08),var(--shadow)}
+  textarea{border:0;outline:0;resize:none;font:15.5px/1.5 var(--sans);color:var(--ink);background:transparent;max-height:200px;min-height:26px}
+  .row{display:flex;justify-content:space-between;align-items:center}
+  .hint{font-size:12px;color:var(--muted)}
+  .send{width:36px;height:36px;border:0;border-radius:11px;background:var(--pink);color:#fff;cursor:pointer;display:grid;place-items:center;transition:.15s}
+  .send:hover{background:var(--pink-600)} .send:disabled{background:var(--pink-100);cursor:default}
+  .disclaimer{text-align:center;font-size:11.5px;color:var(--muted);margin-top:8px}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @keyframes blink{50%{opacity:0}}
+  @keyframes pulse{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (max-width:600px){.chips{grid-template-columns:1fr}.welcome h1{font-size:32px}}
+</style>
+</head>
+<body>
+<svg style="display:none"><symbol id="spark" viewBox="0 0 32 32"><path fill="currentColor" d="M16 2l3.2 9.6L29 14l-9.8 3.2L16 30l-3.2-12.8L3 14l9.8-2.4z"/></symbol></svg>
+
+<header>
+  <div class="brand"><svg class="spark"><use href="#spark"/></svg>Amanda <small>Banco Aurora</small></div>
+  <button class="btn-ghost" id="newChat" title="Nueva conversación">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+    Nueva conversación
+  </button>
+</header>
+
+<main id="scroller">
+  <div class="col" id="thread">
+    <section class="welcome" id="welcome">
+      <svg class="spark"><use href="#spark"/></svg>
+      <h1>Hola, soy <em>Amanda</em></h1>
+      <p>Tu asistente virtual de Banco Aurora. ¿En qué te ayudo hoy?</p>
+      <div class="chips">
+        <div class="chip" data-q="¿Cuál es mi saldo y mis últimos movimientos?"><b>Mi cuenta</b>¿Cuál es mi saldo y mis últimos movimientos?</div>
+        <div class="chip" data-q="¿Qué promociones tienen este mes?"><b>Promociones</b>¿Qué promociones tienen este mes?</div>
+        <div class="chip" data-q="Transfiere 50000 colones a la cuenta AUR-001-990245"><b>Transferencias</b>Transfiere ₡50 000 a la cuenta AUR-001-990245</div>
+        <div class="chip" data-q="Me robaron la tarjeta, ¿qué hago?"><b>Seguridad</b>Me robaron la tarjeta, ¿qué hago?</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="col">
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Escríbele a Amanda…" autofocus></textarea>
+      <div class="row">
+        <span class="hint">Enter para enviar · Shift+Enter nueva línea</span>
+        <button class="send" id="send" aria-label="Enviar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="disclaimer">Laboratorio educativo · Banco Aurora y todos sus datos son ficticios.</div>
+  </div>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const thread = $('#thread'), input = $('#input'), sendBtn = $('#send'), scroller = $('#scroller');
+const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+const API = base + 'v1/chat/completions';
+let history = [], busy = false;
+
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function md(src){
+  const blocks = esc(src).split(/```/);
+  return blocks.map((b,i) => {
+    if (i % 2) return `<pre><code>${b.replace(/^\w*\n/,'')}</code></pre>`;
+    return b.split(/\n{2,}/).map(p => {
+      const lines = p.split('\n');
+      const inline = t => t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
+      if (lines.every(l => /^\s*[-*•]\s+/.test(l)))
+        return '<ul>' + lines.map(l => `<li>${inline(l.replace(/^\s*[-*•]\s+/,''))}</li>`).join('') + '</ul>';
+      if (lines.every(l => /^\s*\d+[.)]\s+/.test(l)))
+        return '<ol>' + lines.map(l => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/,''))}</li>`).join('') + '</ol>';
+      return `<p>${inline(lines.join('<br>'))}</p>`;
+    }).join('');
+  }).join('');
+}
+const scrollDown = () => scroller.scrollTop = scroller.scrollHeight;
+
+function addUser(text){
+  const el = document.createElement('div');
+  el.className = 'msg user';
+  el.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+  thread.appendChild(el);
+}
+function addAssistant(){
+  const el = document.createElement('div');
+  el.className = 'msg assistant';
+  el.innerHTML = `<div class="avatar"><svg><use href="#spark"/></svg></div>
+    <div class="content"><div class="traces"></div><div class="body"><div class="thinking"><span></span><span></span><span></span></div></div></div>`;
+  thread.appendChild(el);
+  return { traces: el.querySelector('.traces'), body: el.querySelector('.body') };
+}
+function addTrace(box, t){
+  const s = document.createElement('span');
+  if (t.type === 'rag') s.innerHTML = `📚 ${t.documents.length} documento(s)`;
+  else if (t.type === 'tool') { s.innerHTML = `🔧 ${esc(t.name)}`; s.title = JSON.stringify(t.arguments); if(!t.ok) s.classList.add('err'); }
+  else { s.innerHTML = `⚠️ ${esc(t.type)}`; s.title = t.error || ''; s.classList.add('err'); }
+  s.classList.add('trace');
+  box.appendChild(s);
+}
+
+async function send(text){
+  text = text.trim();
+  if (!text || busy) return;
+  busy = true; sendBtn.disabled = true;
+  $('#welcome')?.remove();
+  addUser(text);
+  history.push({ role: 'user', content: text });
+  input.value = ''; autosize();
+  const ui = addAssistant(); scrollDown();
+  let answer = '';
+  try {
+    const res = await fetch(API, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history, stream: true, trace: true })
+    });
+    if (!res.ok || !res.body) {
+      const detail = await res.text();
+      throw new Error(`HTTP ${res.status} ${detail.slice(0, 300)}`);
+    }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const events = buf.split('\n\n'); buf = events.pop();
+      for (const ev of events) {
+        const line = ev.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        let j; try { j = JSON.parse(data); } catch { continue; }
+        if (j.object === 'amanda.trace') { addTrace(ui.traces, j); continue; }
+        const d = j.choices?.[0]?.delta?.content;
+        if (d) { answer += d; ui.body.innerHTML = md(answer) + '<span class="cursor"></span>'; scrollDown(); }
+      }
+    }
+    ui.body.innerHTML = md(answer || '…');
+    history.push({ role: 'assistant', content: answer });
+  } catch (e) {
+    ui.body.innerHTML = `<div class="error">No pude responder: ${esc(e.message)}</div>`;
+    history.pop();
+  } finally {
+    busy = false; sendBtn.disabled = false; input.focus(); scrollDown();
+  }
+}
+
+function autosize(){ input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 200) + 'px'; }
+input.addEventListener('input', autosize);
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input.value); } });
+sendBtn.addEventListener('click', () => send(input.value));
+document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => send(c.dataset.q)));
+$('#newChat').addEventListener('click', () => location.reload());
+</script>
+</body>
+</html>

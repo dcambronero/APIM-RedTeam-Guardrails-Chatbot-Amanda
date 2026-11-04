@@ -1,0 +1,27 @@
+<!--
+  API pública /amanda  (UI + /v1/chat/completions, compatible con OpenAI)
+  Fase I: rate limit por IP + header secreto hacia el agente + streaming (SSE) sin buffer.
+-->
+<policies>
+    <inbound>
+        <base />
+        <!-- Protección básica del endpoint público -->
+        <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+        <!-- El agente solo acepta tráfico que venga por APIM -->
+        <set-header name="x-backend-key" exists-action="override">
+            <value>{{backend-key}}</value>
+        </set-header>
+        <!-- FASE III.1 · Guardrail de INPUT: se agrega aquí -->
+    </inbound>
+    <backend>
+        <!-- buffer-response=false: los tokens fluyen al cliente en tiempo real -->
+        <forward-request timeout="120" buffer-response="false" />
+    </backend>
+    <outbound>
+        <base />
+        <!-- FASE III.2 · Guardrail de OUTPUT: se agrega aquí -->
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
