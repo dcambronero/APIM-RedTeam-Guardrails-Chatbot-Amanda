@@ -1,12 +1,23 @@
 <!--
   API pública /amanda  (UI + /v1/chat/completions, compatible con OpenAI)
-  Fase I: rate limit por IP + header secreto hacia el agente + streaming (SSE) sin buffer.
+  - Usuarios anónimos (navegador): 30 req/min por IP.
+  - AI Red Teaming: subscription key "amanda-redteam" (header Ocp-Apim-Subscription-Key): 600 req/min.
+    APIM valida la key aunque la API no exija suscripción; una key inválida devuelve 401.
+  - Streaming (SSE) sin buffer.
 -->
 <policies>
     <inbound>
         <base />
-        <!-- Protección básica del endpoint público -->
-        <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+        <choose>
+            <when condition="@(context.Subscription != null &amp;&amp; context.Subscription.Id == &quot;amanda-redteam&quot;)">
+                <rate-limit-by-key calls="600" renewal-period="60" counter-key="@(context.Subscription.Id)" />
+            </when>
+            <otherwise>
+                <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+            </otherwise>
+        </choose>
+        <!-- La key del cliente no viaja al backend -->
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
         <!-- El agente solo acepta tráfico que venga por APIM -->
         <set-header name="x-backend-key" exists-action="override">
             <value>{{backend-key}}</value>

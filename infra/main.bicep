@@ -3,6 +3,7 @@
 //  APIM (AI Gateway) -> Agente (Container App) -> Azure OpenAI / AI Search / Tools
 //  Diseñado para desplegarse SOLO con rol Contributor sobre el Resource Group
 //  (no crea role assignments: usa keys guardadas como secretos).
+//  Incluye la subscription "amanda-redteam" lista para la Fase II.
 // =====================================================================
 targetScope = 'resourceGroup'
 
@@ -42,8 +43,7 @@ param searchSku string = 'basic'
 @description('Permite usar otra región si AI Search no tiene capacidad en la principal')
 param searchLocation string = location
 
-// ---- Secretos internos ---------------------------------------------
-// El workflow los pasa SIEMPRE (reutiliza los existentes) para que no cambien en cada despliegue.
+// ---- Secretos (el workflow los pasa SIEMPRE, reutilizando los existentes) ----
 @secure()
 @description('Header secreto que APIM inyecta hacia los backends')
 param backendKey string = newGuid()
@@ -51,6 +51,10 @@ param backendKey string = newGuid()
 @secure()
 @description('Subscription key de APIM que usa el agente para /openai, /rag y /tools')
 param agentApimKey string = newGuid()
+
+@secure()
+@description('Subscription key de APIM para AI Red Teaming (solo API /amanda)')
+param redteamApimKey string = newGuid()
 
 var suffix = uniqueString(subscription().id, resourceGroup().id)
 var tags = { project: 'amanda-lab' }
@@ -357,6 +361,7 @@ resource apiAmanda 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
     protocols: [ 'https' ]
     serviceUrl: 'https://${agentApp.properties.configuration.ingress.fqdn}'
     subscriptionRequired: false
+    subscriptionKeyParameterNames: { header: 'Ocp-Apim-Subscription-Key', query: 'subscription-key' }
   }
 }
 
@@ -508,7 +513,8 @@ resource opToolsAudit 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
   properties: { displayName: 'Audit log', method: 'GET', urlTemplate: '/audit' }
 }
 
-// ---------- Subscription que usa el agente ---------------------------
+// ---------- Subscriptions -------------------------------------------
+// Agente: acceso a las APIs internas (/openai, /rag, /tools)
 resource agentSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-05-01' = {
   parent: apim
   name: 'amanda-agent'
@@ -520,11 +526,24 @@ resource agentSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-0
   }
 }
 
+// AI Red Teaming (Fase II): SOLO la API pública /amanda, con rate limit alto
+resource redteamSubscription 'Microsoft.ApiManagement/service/subscriptions@2024-05-01' = {
+  parent: apim
+  name: 'amanda-redteam'
+  properties: {
+    displayName: 'AI Red Teaming (Fase II)'
+    scope: apiAmanda.id
+    primaryKey: redteamApimKey
+    state: 'active'
+  }
+}
+
 // =====================================================================
-//  Outputs
+//  Outputs (sin secretos: la key del Red Team se obtiene con get-redteam-key.ps1)
 // =====================================================================
 output chatUrl string = '${apim.properties.gatewayUrl}/amanda/'
 output chatCompletionsUrl string = '${apim.properties.gatewayUrl}/amanda/v1/chat/completions'
+output redteamSubscriptionName string = redteamSubscription.name
 output apimName string = apim.name
 output aoaiName string = aoai.name
 output searchName string = search.name

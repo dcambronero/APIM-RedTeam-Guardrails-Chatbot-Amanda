@@ -67,16 +67,26 @@ jobs:
           docker push "$ACR_SERVER/amanda-agent:$TAG"
           docker push "$ACR_SERVER/amanda-tools:$TAG"
 
-      - name: "Keys internas estables (reutiliza las existentes)"
+      - name: "Keys estables (reutiliza las existentes)"
         run: |
           az config set extension.use_dynamic_install=yes_without_prompt -o none
+          SUB=$(az account show --query id -o tsv)
           get() { az containerapp secret show -g "$RG" -n ca-amanda-agent --secret-name "$1" --query value -o tsv 2>/dev/null || true; }
           BK=$(get backend-key); AK=$(get apim-key)
-          [ -z "$BK" ] && BK=$(uuidgen)
-          [ -z "$AK" ] && AK=$(uuidgen)
-          echo "::add-mask::$BK"; echo "::add-mask::$AK"
+          APIM=$(az resource list -g "$RG" --resource-type Microsoft.ApiManagement/service --query "[0].name" -o tsv 2>/dev/null || true)
+          RK=""
+          if [ -n "$APIM" ]; then
+            RK=$(az rest --method post \
+              --url "https://management.azure.com/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/$APIM/subscriptions/amanda-redteam/listSecrets?api-version=2024-05-01" \
+              --query primaryKey -o tsv 2>/dev/null || true)
+          fi
+          [ -z "$BK" ] && BK=$(uuidgen | tr -d '-')
+          [ -z "$AK" ] && AK=$(uuidgen | tr -d '-')
+          [ -z "$RK" ] && RK=$(uuidgen | tr -d '-')
+          echo "::add-mask::$BK"; echo "::add-mask::$AK"; echo "::add-mask::$RK"
           echo "BACKEND_KEY=$BK" >> $GITHUB_ENV
           echo "AGENT_APIM_KEY=$AK" >> $GITHUB_ENV
+          echo "REDTEAM_APIM_KEY=$RK" >> $GITHUB_ENV
 
       - name: "3/6 · Infraestructura (APIM, OpenAI, Search, Container Apps) ~15-30 min"
         run: |
@@ -93,6 +103,7 @@ jobs:
                chatModelVersion="$CHAT_MODEL_VERSION" \
                backendKey="$BACKEND_KEY" \
                agentApimKey="$AGENT_APIM_KEY" \
+               redteamApimKey="$REDTEAM_APIM_KEY" \
             --query properties.outputs -o json > outputs.json
           jq -r 'to_entries[] | "\(.key)=\(.value.value)"' outputs.json | tee -a $GITHUB_ENV
 
@@ -107,23 +118,29 @@ jobs:
           echo "::add-mask::$AOAI_KEY"; echo "::add-mask::$SEARCH_ADMIN_KEY"
           python scripts/seed_rag.py
 
-      - name: "5/6 · Smoke test (end-to-end por internet)"
+      - name: "5/6 · Smoke test (anónimo + key de Red Team)"
         run: |
+          BODY='{"messages":[{"role":"user","content":"¿Cuál es el horario de las sucursales?"}],"stream":false,"trace":true}'
+          OK=0
           for i in $(seq 1 20); do
             CODE=$(curl -s -o resp.json -w "%{http_code}" -X POST "$chatCompletionsUrl" \
-              -H "Content-Type: application/json" \
-              -d '{"messages":[{"role":"user","content":"¿Cuál es el horario de las sucursales?"}],"stream":false,"trace":true}')
+              -H "Content-Type: application/json" -d "$BODY")
             if [ "$CODE" = "200" ] && jq -e '.choices[0].message.content | length > 0' resp.json >/dev/null; then
-              echo "✔ Amanda respondió:"; jq -r '.choices[0].message.content' resp.json
+              echo "✔ Amanda (anónimo) respondió:"; jq -r '.choices[0].message.content' resp.json
               jq -c '.amanda_trace' resp.json
               if jq -e '.amanda_trace[] | select(.type=="model_error" or .type=="rag_error")' resp.json >/dev/null; then
                 echo "::error::Amanda respondió, pero hubo errores internos (ver amanda_trace)"; exit 1
               fi
-              exit 0
+              OK=1; break
             fi
             echo "Intento $i: HTTP $CODE, esperando a que los servicios estén listos..."; sleep 20
           done
-          cat resp.json; exit 1
+          [ "$OK" = "1" ] || { cat resp.json; exit 1; }
+
+          CODE=$(curl -s -o rt.json -w "%{http_code}" -X POST "$chatCompletionsUrl" \
+            -H "Content-Type: application/json" -H "Ocp-Apim-Subscription-Key: $REDTEAM_APIM_KEY" -d "$BODY")
+          if [ "$CODE" != "200" ]; then echo "::error::La key de Red Team devolvió HTTP $CODE"; cat rt.json; exit 1; fi
+          echo "✔ Key de Red Team válida (HTTP 200)"
 
       - name: "6/6 · Resumen"
         if: always()
@@ -138,4 +155,14 @@ jobs:
             echo "| Modelo | \`$CHAT_MODEL\` |"
             echo "| APIM | \`$apimName\` |"
             echo "| Resource group | \`$RG\` |"
+            echo ""
+            echo "### 🎯 Datos para AI Red Teaming (Fase II)"
+            echo ""
+            echo "| Campo del target | Valor |"
+            echo "|---|---|"
+            echo "| Endpoint | \`$chatCompletionsUrl\` |"
+            echo "| Header de autenticación | \`Ocp-Apim-Subscription-Key\` |"
+            echo "| API key | Ejecuta \`scripts/get-redteam-key.ps1\` (no se muestra aquí por seguridad) |"
+            echo "| Additional fields | \`{\"stream\": false}\` |"
+            echo "| Rate limit | 600 req/min (anónimo: 30 req/min por IP) |"
           } >> $GITHUB_STEP_SUMMARY
