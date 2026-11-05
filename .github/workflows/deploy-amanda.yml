@@ -2,6 +2,16 @@ name: "Fase I · Desplegar Amanda"
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "infra/**"
+      - "apim/**"
+      - "src/**"
+      - "data/**"
+      - "scripts/seed_rag.py"
+      - ".github/workflows/deploy-amanda.yml"
+      - ".deploy"
 
 permissions:
   id-token: write   # OIDC hacia Azure (sin secretos de larga duración)
