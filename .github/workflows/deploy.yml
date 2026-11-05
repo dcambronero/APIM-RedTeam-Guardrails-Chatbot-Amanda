@@ -14,9 +14,11 @@ concurrency:
 env:
   RG: ${{ vars.AZURE_RESOURCE_GROUP }}
   LOCATION: ${{ vars.AZURE_LOCATION }}
-  PUBLISHER_EMAIL: ${{ vars.APIM_PUBLISHER_EMAIL }}
+  PUBLISHER_EMAIL: ${{ secrets.APIM_PUBLISHER_EMAIL }}
   SEARCH_SKU: ${{ vars.SEARCH_SKU || 'basic' }}
   SEARCH_LOCATION: ${{ vars.SEARCH_LOCATION || vars.AZURE_LOCATION }}
+  CHAT_MODEL: ${{ vars.CHAT_MODEL || 'gpt-5.4-mini' }}
+  CHAT_MODEL_VERSION: ${{ vars.CHAT_MODEL_VERSION || '2026-03-17' }}
   TAG: ${{ github.sha }}
 
 jobs:
@@ -29,7 +31,7 @@ jobs:
       - name: Validar variables del repo
         run: |
           for v in RG LOCATION PUBLISHER_EMAIL; do
-            if [ -z "${!v}" ]; then echo "::error::Falta la variable $v. Corre scripts/bootstrap.ps1"; exit 1; fi
+            if [ -z "${!v}" ]; then echo "::error::Falta $v. Corre scripts/bootstrap.ps1"; exit 1; fi
           done
 
       - name: Login a Azure (OIDC)
@@ -55,6 +57,17 @@ jobs:
           docker push "$ACR_SERVER/amanda-agent:$TAG"
           docker push "$ACR_SERVER/amanda-tools:$TAG"
 
+      - name: "Keys internas estables (reutiliza las existentes)"
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt -o none
+          get() { az containerapp secret show -g "$RG" -n ca-amanda-agent --secret-name "$1" --query value -o tsv 2>/dev/null || true; }
+          BK=$(get backend-key); AK=$(get apim-key)
+          [ -z "$BK" ] && BK=$(uuidgen)
+          [ -z "$AK" ] && AK=$(uuidgen)
+          echo "::add-mask::$BK"; echo "::add-mask::$AK"
+          echo "BACKEND_KEY=$BK" >> $GITHUB_ENV
+          echo "AGENT_APIM_KEY=$AK" >> $GITHUB_ENV
+
       - name: "3/6 · Infraestructura (APIM, OpenAI, Search, Container Apps) ~15-30 min"
         run: |
           az deployment group create -g "$RG" -n main \
@@ -66,6 +79,10 @@ jobs:
                toolsImage="$ACR_SERVER/amanda-tools:$TAG" \
                searchSku="$SEARCH_SKU" \
                searchLocation="$SEARCH_LOCATION" \
+               chatModelName="$CHAT_MODEL" \
+               chatModelVersion="$CHAT_MODEL_VERSION" \
+               backendKey="$BACKEND_KEY" \
+               agentApimKey="$AGENT_APIM_KEY" \
             --query properties.outputs -o json > outputs.json
           jq -r 'to_entries[] | "\(.key)=\(.value.value)"' outputs.json | tee -a $GITHUB_ENV
 
@@ -89,6 +106,9 @@ jobs:
             if [ "$CODE" = "200" ] && jq -e '.choices[0].message.content | length > 0' resp.json >/dev/null; then
               echo "✔ Amanda respondió:"; jq -r '.choices[0].message.content' resp.json
               jq -c '.amanda_trace' resp.json
+              if jq -e '.amanda_trace[] | select(.type=="model_error" or .type=="rag_error")' resp.json >/dev/null; then
+                echo "::error::Amanda respondió, pero hubo errores internos (ver amanda_trace)"; exit 1
+              fi
               exit 0
             fi
             echo "Intento $i: HTTP $CODE, esperando a que los servicios estén listos..."; sleep 20
@@ -99,12 +119,13 @@ jobs:
         if: always()
         run: |
           {
-            echo "## 💗 Amanda está en línea"
+            echo "## 💗 Amanda"
             echo ""
             echo "| | |"
             echo "|---|---|"
             echo "| **Chat (UI)** | $chatUrl |"
             echo "| **Endpoint OpenAI-compatible** | \`$chatCompletionsUrl\` |"
+            echo "| Modelo | \`$CHAT_MODEL\` |"
             echo "| APIM | \`$apimName\` |"
             echo "| Resource group | \`$RG\` |"
           } >> $GITHUB_STEP_SUMMARY

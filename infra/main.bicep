@@ -24,6 +24,7 @@ param agentImage string
 param toolsImage string
 
 // ---- Modelos -------------------------------------------------------
+@description('Modelo de chat. gpt-4o-mini está en deprecación y no admite deployments nuevos')
 param chatModelName string = 'gpt-5.4-mini'
 param chatModelVersion string = '2026-03-17'
 param chatDeploymentSku string = 'GlobalStandard'
@@ -41,7 +42,8 @@ param searchSku string = 'basic'
 @description('Permite usar otra región si AI Search no tiene capacidad en la principal')
 param searchLocation string = location
 
-// ---- Secretos internos (se regeneran en cada despliegue) -----------
+// ---- Secretos internos ---------------------------------------------
+// El workflow los pasa SIEMPRE (reutiliza los existentes) para que no cambien en cada despliegue.
 @secure()
 @description('Header secreto que APIM inyecta hacia los backends')
 param backendKey string = newGuid()
@@ -63,7 +65,11 @@ var names = {
   apim: 'apim-amanda-${suffix}'
 }
 var searchIndex = 'amanda-kb'
-var aoaiApiVersion = '2025-04-01-preview'
+var aoaiApiVersion = '2025-04-01-preview' // requerido por la familia gpt-5
+
+// Si cambian las keys, cambia este valor y Container Apps crea una revisión nueva
+// (cambiar solo un secret NO reinicia la app y la key vieja queda en memoria).
+var secretsVersion = uniqueString(backendKey, agentApimKey)
 
 // =====================================================================
 //  Observabilidad
@@ -157,7 +163,7 @@ resource search 'Microsoft.Search/searchServices@2023-11-01' = {
 }
 
 // =====================================================================
-//  Container Apps (agente + tools)
+//  Container Apps (agente + tools) y APIM
 // =====================================================================
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
@@ -224,10 +230,11 @@ resource toolsApp 'Microsoft.App/containerApps@2024-03-01' = {
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'BACKEND_KEY', secretRef: 'backend-key' }
+            { name: 'SECRETS_VERSION', value: secretsVersion }
           ]
         }
       ]
-      // 1 réplica: el estado (saldos, outbox) vive en memoria
+      // 1 réplica: el estado (saldos, auditoría) vive en memoria
       scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }
@@ -272,6 +279,7 @@ resource agentApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'EMBED_DEPLOYMENT', value: embedModelName }
             { name: 'AOAI_API_VERSION', value: aoaiApiVersion }
             { name: 'SEARCH_INDEX', value: searchIndex }
+            { name: 'SECRETS_VERSION', value: secretsVersion }
           ]
         }
       ]
