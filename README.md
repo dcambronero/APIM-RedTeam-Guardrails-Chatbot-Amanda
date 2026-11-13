@@ -1,131 +1,190 @@
-# 💗 Amanda · APIM AI Gateway · Red Team · Guardrails
+<div align="center">
 
-Lab educativo para aprender a proteger agentes de IA detrás de **Azure API Management**.
-**Amanda** es la asistente virtual de *Banco Aurora* (ficticio): chatbot con **streaming**, **RAG** y **tool calling**, publicado en internet a través de APIM.
+# 💗 Amanda · AI Agent Security Lab
 
-| Fase | Qué haces | Qué aprendes |
-|---|---|---|
-| **I · Despliegue** | Clonas, corres 2 scripts y 1 workflow | Nada, la idea es que funcione al primer intento |
-| **II · Red Team** | Atacas a Amanda desde la plataforma SaaS de AI Red Teaming | Qué riesgos críticos tiene un agente real |
-| **III · Guardrails** | Implementas paso a paso los guardrails en APIM: III.1 Input · III.2 Output · III.3 RAG · III.4 Tool calls | Dónde y cómo inspeccionar cada punto |
+**Azure API Management · AI Red Teaming · AI Guardrails**
 
-> Arquitectura y decisiones de diseño: [docs/arquitectura.md](docs/arquitectura.md)
+Aprende a proteger un agente de IA real (chat + RAG + tools) detrás de Azure APIM:<br/>
+**despliégalo**, **atácalo** y **protégelo** punto por punto.
+
+![Azure](https://img.shields.io/badge/Azure-APIM%20Basic%20v2-0078D4?logo=microsoftazure&logoColor=white)
+![OpenAI](https://img.shields.io/badge/Azure%20OpenAI-gpt--5.4--mini-412991?logo=openai&logoColor=white)
+![IaC](https://img.shields.io/badge/IaC-Bicep-00B4AB)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions%20%2B%20OIDC-2088FF?logo=githubactions&logoColor=white)
+![Security](https://img.shields.io/badge/Check%20Point-AI%20Agent%20Security-E6007E)
+![Lab](https://img.shields.io/badge/lab-educativo-D9577F)
+
+</div>
 
 ---
 
-## Fase I · Desplegar Amanda (≈ 30-40 min, casi todo es espera)
+## 🧭 Las 3 fases
 
-### Requisitos (Windows + VS Code)
+| | Fase | Qué haces | Guía |
+|:-:|---|---|---|
+| 🚀 | **I · Despliegue** | Clonas, corres 2 scripts y haces push. Amanda queda en internet | [GUIA-DESPLIEGUE-AMANDA.md](GUIA-DESPLIEGUE-AMANDA.md) |
+| 🎯 | **II · Red Team** | Atacas a Amanda desde la plataforma SaaS de AI Red Teaming | [GUIA-FASE-II-RED-TEAM-AMANDA.md](GUIA-FASE-II-RED-TEAM-AMANDA.md) |
+| 🛡️ | **III · Guardrails** | Implementas AI Agent Security en APIM, lección por lección | [GUIA-FASE-III-AI-GUARDRAILS-APIM.md](GUIA-FASE-III-AI-GUARDRAILS-APIM.md) |
 
-```powershell
-winget install Microsoft.AzureCLI
-winget install GitHub.cli
-winget install Git.Git
+---
+
+## 🏗️ Arquitectura
+
+```mermaid
+flowchart LR
+    U(["👤 Usuario<br/>navegador"]) -->|HTTPS| P
+    RT(["🎯 AI Red Teaming<br/>SaaS"]) -->|HTTPS + key| P
+
+    subgraph APIM["☁️ Azure API Management · AI Gateway"]
+        direction TB
+        P["/amanda · público"]
+        O["/openai · interno"]
+        R["/rag · interno"]
+        T["/tools · interno"]
+    end
+
+    P --> AG["🤖 Agente Amanda<br/>Container App · SSE"]
+    AG --> O --> AOAI["🧠 Azure OpenAI<br/>gpt-5.4-mini"]
+    AG --> R --> S["📚 AI Search<br/>RAG"]
+    AG --> T --> TL["🔧 Tools Banco Aurora<br/>Container App"]
+
+    APIM -. "🛡️ /v2/guard (Fase III)" .-> G["AI Agent Security"]
+    APIM -. logs .-> AI["📈 App Insights"]
+
+    style APIM fill:#FDF0F4,stroke:#D9577F,stroke-width:2px
+    style G fill:#FFF,stroke:#E6007E,stroke-dasharray: 5 5
 ```
 
-- Suscripción de Azure donde seas **Owner** (o Contributor + User Access Administrator). Si usas PIM, **activa el rol** antes.
-- Permiso para crear *App registrations* en Entra ID.
-- Cuota de Azure OpenAI en la región: `gpt-4o-mini` (GlobalStandard, 50K TPM) y `text-embedding-3-small` (Standard, 50K TPM).
+> 🔑 **Todo pasa por APIM**: el chat, el modelo, el RAG y las tools. Por eso los guardrails se pueden poner en el gateway sin tocar el agente.
 
-Abre VS Code y una terminal **PowerShell**.
+### 🛡️ Puntos de inspección (Fase III)
 
-### Paso 1 · Clonar el repo
-
-```powershell
-git clone https://github.com/dcambronero/APIM-RedTeam-Guardrails-Chatbot-Amanda.git
-cd APIM-RedTeam-Guardrails-Chatbot-Amanda
-code .
+```
+ Usuario ─► /amanda ──[INPUT]──► Agente ──► /rag ──[RAG]──► AI Search
+    ▲          │                   │
+    └──────[OUTPUT]◄───────────────┤
+                                   └──► /tools ──[TOOL CALL]──► Tools
+                                               ◄─[TOOL RESPONSE]─┘
 ```
 
-> Si Windows bloquea los scripts: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+---
 
-### Paso 2 · Login
+## 🧩 Componentes
+
+| | Recurso | Rol |
+|:-:|---|---|
+| ☁️ | **API Management** Basic v2 | AI Gateway y punto de enforcement de los guardrails |
+| 🤖 | **Container App** `ca-amanda-agent` | Agente FastAPI + UI de chat (streaming) |
+| 🔧 | **Container App** `ca-amanda-tools` | Tools del banco · **vulnerables a propósito** |
+| 🧠 | **Azure OpenAI** | `gpt-5.4-mini` + `text-embedding-3-small` |
+| 📚 | **Azure AI Search** | Base de conocimiento (incluye un documento envenenado) |
+| 📦 | **Container Registry** | Imágenes |
+| 📈 | **Log Analytics + App Insights** | Logs y trazas |
+
+### 🎯 Vulnerabilidades del lab
+
+| | Riesgo | Impacto |
+|:-:|---|:-:|
+| 1 | Fuga del system prompt | 🟠 Alto |
+| 2 | Datos de otros clientes (BOLA) | 🔴 Crítico |
+| 3 | Fuga de tarjeta, CVV, cédula | 🔴 Crítico |
+| 4 | Transferencias sin confirmación | 🔴 Crítico |
+| 5 | Exfiltración por correo | 🔴 Crítico |
+| 6 | Inyección indirecta por RAG | 🟠 Alto |
+
+---
+
+## ✅ Requisitos
+
+| | Necesitas |
+|:-:|---|
+| 🪟 | Windows con PowerShell + `winget` |
+| ☁️ | Suscripción de Azure como **Owner** (si usas PIM, rol activado) |
+| 🔐 | Permiso para crear **App registrations** en Entra ID |
+| 🧠 | Cuota de Azure OpenAI: 50K TPM de `gpt-5.4-mini` y de `text-embedding-3-small` |
+| 🐙 | Cuenta de GitHub (fork de este repo) |
+| 🎯 | Fases II y III: acceso a Check Point AI Red Teaming y AI Guardrails |
 
 ```powershell
+winget install --id Git.Git -e
+winget install --id Microsoft.AzureCLI -e
+winget install --id GitHub.cli -e
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+> No necesitas Docker ni Python: todo se construye en GitHub Actions.
+
+---
+
+## ⚡ Quick start
+
+```powershell
+# 1 · Login y repo
 az login
-az account set --subscription "<tu-suscripcion>"
 gh auth login
-```
+gh repo fork dcambronero/APIM-RedTeam-Guardrails-Chatbot-Amanda --clone
+cd APIM-RedTeam-Guardrails-Chatbot-Amanda
+$login = gh api user --jq .login
+git config user.email "$(gh api user --jq .id)+$login@users.noreply.github.com"
 
-### Paso 3 · Preflight: ¿mis permisos alcanzan?
-
-```powershell
+# 2 · Validar y preparar (una vez)
 .\scripts\preflight.ps1 -Location eastus2
+.\scripts\bootstrap.ps1 -PublisherEmail tu.correo@gmail.com -Location eastus2 -Repo "$login/APIM-RedTeam-Guardrails-Chatbot-Amanda"
+gh variable set SEARCH_LOCATION -b centralus
+
+# 3 · Desplegar (~35 min la primera vez)
+Get-Date | Out-File .deploy
+git add .deploy ; git commit -m "deploy" ; git push
+Start-Sleep 20 ; gh run watch
+
+# 4 · Probar y obtener los datos para el Red Team
+.\scripts\smoke-test.ps1
+.\scripts\get-redteam-key.ps1 -CopyKey
 ```
 
-Valida rol RBAC, creación de app registrations, providers, disponibilidad y cuota de modelos, Azure Policy y GitHub CLI. **Todo debe estar en PASS o WARN.**
+> 💡 En un fork, habilita Actions: pestaña **Actions → I understand my workflows…**
 
-### Paso 4 · Bootstrap (una sola vez)
+---
+
+## 🧰 Scripts
+
+| Script | Para qué |
+|---|---|
+| `preflight.ps1` | ✔️ Valida permisos, cuota, modelos y soft-delete |
+| `bootstrap.ps1` | 🔐 Prepara Azure + GitHub (OIDC, sin contraseñas) |
+| `smoke-test.ps1` | 🧪 Prueba Amanda por internet (normal y streaming) |
+| `get-redteam-key.ps1` | 🎯 URL, key y datos del target de Red Team |
+| `show-audit.ps1` | 🧾 Transferencias y correos que ejecutó el agente |
+| `destroy.ps1` | 🧹 Borra todo y purga APIM / OpenAI |
+
+---
+
+## 💸 Apagar al terminar
+
+APIM y AI Search **cobran mientras existan**.
 
 ```powershell
-.\scripts\bootstrap.ps1 -PublisherEmail tu-correo@dominio.com -Location eastus2
+.\scripts\destroy.ps1
 ```
+Para volver: `bootstrap.ps1` + push de `.deploy`.
 
-Crea el resource group, la identidad de despliegue con **OIDC** (sin secretos de larga duración, solo Contributor sobre el RG) y configura los secrets y variables del repo en GitHub.
+---
 
-### Paso 5 · Desplegar
-
-GitHub → **Actions** → **Fase I · Desplegar Amanda** → **Run workflow**.
-
-Al terminar, el *Summary* del workflow muestra la URL de Amanda:
+## 📁 Estructura
 
 ```
-https://apim-amanda-xxxx.azure-api.net/amanda/
-```
-
-### Paso 6 · Probar
-
-- Abre la URL en el navegador y conversa con Amanda.
-- Desde PowerShell:
-
-```powershell
-.\scripts\smoke-test.ps1      # prueba stream=false y stream=true por internet
-.\scripts\show-audit.ps1      # transferencias y correos que ejecutó Amanda
-```
-
-### Limpiar
-
-```powershell
-.\scripts\destroy.ps1                          # borra el RG y purga APIM/OpenAI
-.\scripts\destroy.ps1 -DeleteDeployerIdentity  # además borra la app de OIDC
+.github/workflows/deploy-amanda.yml   🚀 Despliegue
+infra/                                🏗️ Bicep (APIM, OpenAI, Search, Container Apps)
+apim/policies/                        🛡️ Políticas de APIM (aquí van los guardrails)
+src/agent/  src/tools/                🤖 Agente + UI · 🔧 Tools
+data/rag/                             📚 Base de conocimiento
+scripts/                              🧰 Scripts PowerShell
+docs/arquitectura.md                  📐 Decisiones de diseño
 ```
 
 ---
 
-## Componentes
+<div align="center">
 
-| Recurso | Rol |
-|---|---|
-| API Management **Basic v2** | AI Gateway: `/amanda` (público), `/openai`, `/rag`, `/tools` (internos) |
-| Container App `ca-amanda-agent` | Agente FastAPI + UI · streaming SSE · OpenAI-compatible |
-| Container App `ca-amanda-tools` | Tools de Banco Aurora (**intencionalmente vulnerables**) |
-| Azure OpenAI | `gpt-4o-mini` + `text-embedding-3-small` |
-| Azure AI Search | Índice `amanda-kb` (búsqueda híbrida) |
-| ACR · Log Analytics · App Insights | Imágenes y observabilidad |
+⚠️ **Banco Aurora y todos sus datos son 100% ficticios.** Nunca subas keys al repo.
 
-**Costo aproximado:** APIM Basic v2 + AI Search Basic son la mayor parte. Destruye el lab cuando no lo uses (o usa la variable `SEARCH_SKU=free`).
-
-## Estructura
-
-```
-infra/            acr.bicep · main.bicep
-apim/policies/    políticas por API (con marcadores FASE III.x)
-src/agent/        agente + UI de Amanda
-src/tools/        servicio de tools (vulnerable a propósito)
-data/rag/         base de conocimiento (incluye un documento envenenado)
-scripts/          preflight · bootstrap · smoke-test · show-audit · destroy · seed_rag
-.github/workflows deploy.yml
-```
-
-## Troubleshooting
-
-| Síntoma | Solución |
-|---|---|
-| `AADSTS700213 / No matching federated identity record` | Repo creado después del 15-jul-2026 sin IDs leídos: corre `gh auth login` y repite el bootstrap |
-| `InsufficientQuota` en OpenAI | Baja `chatCapacity`/`embedCapacity` o cambia `AZURE_LOCATION` |
-| AI Search sin capacidad en la región | Crea la variable `SEARCH_LOCATION` con otra región |
-| `ServiceAlreadyExists` / nombre en soft-delete | Corre `.\scripts\destroy.ps1` (purga) y vuelve a desplegar |
-| `RequestDisallowedByPolicy` | Una Azure Policy bloquea keys locales o endpoints públicos: usa otra suscripción o pide una excepción |
-| La UI responde `429` | Rate limit de 30 req/min por IP en `/amanda` |
-
-> ⚠️ Banco Aurora, sus clientes, tarjetas y cuentas son 100% ficticios. No uses datos reales.
+</div>
