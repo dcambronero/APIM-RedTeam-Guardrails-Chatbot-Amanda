@@ -75,7 +75,6 @@ if ($notReg.Count -eq 0) { Add-Result "Resource providers" "PASS" "Todos registr
 else { Add-Result "Resource providers" "WARN" "No registrados (el bootstrap los registra): $($notReg -join ', ')" }
 
 # 6. Modelos (nombre + versión + SKU) y cuota de Azure OpenAI
-#    Filtrado con JMESPath dentro de az: robusto en PowerShell 5.1 y 7
 $checks = @(
     @{ n = $ChatModel;  v = $ChatVersion; s = $ChatSku;  c = $ChatCapacity },
     @{ n = $EmbedModel; v = "1";          s = $EmbedSku; c = $EmbedCapacity }
@@ -84,14 +83,15 @@ foreach ($m in $checks) {
     $q = "[?model.name=='$($m.n)' && model.version=='$($m.v)'] | [?contains(model.skus[].name, '$($m.s)')] | length(@)"
     $found = 0
     $raw = az cognitiveservices model list -l $Location --query $q -o tsv 2>$null
-    if ($raw) { $found = [int](@($raw)[0]) }
+    $num = @($raw) | Where-Object { $_ -match '^\d+$' } | Select-Object -First 1
+    if ($num) { $found = [int]$num }
     if ($found -lt 1) {
         $skus = az cognitiveservices model list -l $Location --query "[?model.name=='$($m.n)'].model.skus[].name" -o tsv 2>$null
         Add-Result "Modelo $($m.n)" "FAIL" "Versión $($m.v) con SKU $($m.s) no disponible en $Location. SKUs: $((@($skus) | Sort-Object -Unique) -join ', ')"
         continue
     }
     $u = az cognitiveservices usage list -l $Location --query "[?name.value=='OpenAI.$($m.s).$($m.n)'] | [0].[limit, currentValue]" -o tsv 2>$null
-    $vals = @(@($u) -join " " -split "\s+" | Where-Object { $_ -ne "" })
+    $vals = @(@($u) -join " " -split "\s+" | Where-Object { $_ -match '^\d+(\.\d+)?$' })
     if ($vals.Count -ge 2) {
         $free = [int][double]$vals[0] - [int][double]$vals[1]
         if ($free -ge $m.c) { Add-Result "Cuota $($m.n)" "PASS" "$free K TPM libres ($($m.s), se usan $($m.c))" }
@@ -108,10 +108,15 @@ if ($risky.Count -gt 0) { Add-Result "Azure Policy" "WARN" "Revisa: $($risky -jo
 else { Add-Result "Azure Policy" "PASS" "Sin políticas evidentes que bloqueen el lab" }
 
 # 8. Recursos en soft-delete que bloquearían el redespliegue
-$apimDeleted = az apim deletedservice list --query "[?starts_with(name,'apim-amanda-')].name" -o tsv 2>$null
-$aoaiDeleted = az cognitiveservices account list-deleted --query "[?starts_with(name,'aoai-amanda-')].name" -o tsv 2>$null
-if ($apimDeleted -or $aoaiDeleted) {
-    Add-Result "Soft-delete" "FAIL" "Purga antes de desplegar: $((@($apimDeleted) + @($aoaiDeleted) | Where-Object { $_ }) -join ', ') (ver destroy.ps1 o la guía)"
+#    Se trae la lista completa y se filtra en PowerShell (sin funciones JMESPath con paréntesis:
+#    en Windows, az.cmd puede "imprimir" la línea de comando y contaminar la salida).
+$apimDeleted = @(az apim deletedservice list --query "[].name" -o tsv 2>$null) |
+               Where-Object { $_ -match '^apim-amanda-[a-z0-9]+$' }
+$aoaiDeleted = @(az cognitiveservices account list-deleted --query "[].name" -o tsv 2>$null) |
+               Where-Object { $_ -match '^aoai-amanda-[a-z0-9]+$' }
+$pending = @($apimDeleted) + @($aoaiDeleted) | Where-Object { $_ }
+if ($pending.Count -gt 0) {
+    Add-Result "Soft-delete" "FAIL" "Purga antes de desplegar: $($pending -join ', ') (ver destroy.ps1 o la guía)"
 } else { Add-Result "Soft-delete" "PASS" "Sin APIM ni Azure OpenAI de Amanda pendientes de purga" }
 
 # 9. GitHub CLI
