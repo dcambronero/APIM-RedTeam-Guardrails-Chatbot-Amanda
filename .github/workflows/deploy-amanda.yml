@@ -29,18 +29,21 @@ env:
   SEARCH_LOCATION: ${{ vars.SEARCH_LOCATION || vars.AZURE_LOCATION }}
   CHAT_MODEL: ${{ vars.CHAT_MODEL || 'gpt-5.4-mini' }}
   CHAT_MODEL_VERSION: ${{ vars.CHAT_MODEL_VERSION || '2026-03-17' }}
+  AZ_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZ_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AZ_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TAG: ${{ github.sha }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       - name: Validar variables del repo
         run: |
-          for v in RG LOCATION PUBLISHER_EMAIL; do
+          for v in RG LOCATION PUBLISHER_EMAIL AZ_CLIENT_ID AZ_TENANT_ID AZ_SUBSCRIPTION_ID; do
             if [ -z "${!v}" ]; then echo "::error::Falta $v. Corre scripts/bootstrap.ps1"; exit 1; fi
           done
 
@@ -70,14 +73,13 @@ jobs:
       - name: "Keys estables (reutiliza las existentes)"
         run: |
           az config set extension.use_dynamic_install=yes_without_prompt -o none
-          SUB=$(az account show --query id -o tsv)
           get() { az containerapp secret show -g "$RG" -n ca-amanda-agent --secret-name "$1" --query value -o tsv 2>/dev/null || true; }
           BK=$(get backend-key); AK=$(get apim-key)
           APIM=$(az resource list -g "$RG" --resource-type Microsoft.ApiManagement/service --query "[0].name" -o tsv 2>/dev/null || true)
           RK=""
           if [ -n "$APIM" ]; then
             RK=$(az rest --method post \
-              --url "https://management.azure.com/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/$APIM/subscriptions/amanda-redteam/listSecrets?api-version=2024-05-01" \
+              --url "https://management.azure.com/subscriptions/$AZ_SUBSCRIPTION_ID/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/$APIM/subscriptions/amanda-redteam/listSecrets?api-version=2024-05-01" \
               --query primaryKey -o tsv 2>/dev/null || true)
           fi
           [ -z "$BK" ] && BK=$(uuidgen | tr -d '-')
@@ -88,9 +90,21 @@ jobs:
           echo "AGENT_APIM_KEY=$AK" >> $GITHUB_ENV
           echo "REDTEAM_APIM_KEY=$RK" >> $GITHUB_ENV
 
-      - name: "3/6 · Infraestructura (APIM, OpenAI, Search, Container Apps) ~15-30 min"
+      - name: "3/6 · Infraestructura (APIM, OpenAI, Search, Container Apps) ~15-45 min"
         run: |
-          az deployment group create -g "$RG" -n main \
+          # El token OIDC de GitHub vence a los ~5 min y el access token de Azure a los ~60 min.
+          # Crear APIM puede tardar más de 1 hora, así que el despliegue se lanza con --no-wait
+          # y se consulta en un bucle, renovando el login OIDC en cada vuelta.
+          relogin() {
+            local tok
+            tok=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                  "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r .value)
+            az login --service-principal -u "$AZ_CLIENT_ID" -t "$AZ_TENANT_ID" --federated-token "$tok" -o none
+            az account set -s "$AZ_SUBSCRIPTION_ID"
+          }
+
+          relogin
+          az deployment group create -g "$RG" -n main --no-wait \
             --template-file infra/main.bicep \
             -p location="$LOCATION" \
                publisherEmail="$PUBLISHER_EMAIL" \
@@ -103,8 +117,24 @@ jobs:
                chatModelVersion="$CHAT_MODEL_VERSION" \
                backendKey="$BACKEND_KEY" \
                agentApimKey="$AGENT_APIM_KEY" \
-               redteamApimKey="$REDTEAM_APIM_KEY" \
-            --query properties.outputs -o json > outputs.json
+               redteamApimKey="$REDTEAM_APIM_KEY"
+
+          START=$(date +%s)
+          while true; do
+            sleep 60
+            relogin
+            STATE=$(az deployment group show -g "$RG" -n main --query properties.provisioningState -o tsv)
+            echo "$(( ($(date +%s) - START) / 60 )) min · estado: $STATE"
+            case "$STATE" in
+              Succeeded) break ;;
+              Failed|Canceled)
+                az deployment operation group list -g "$RG" -n main \
+                  --query "[?properties.provisioningState=='Failed'].{recurso:properties.targetResource.resourceName, error:properties.statusMessage.error}" -o json
+                exit 1 ;;
+            esac
+          done
+
+          az deployment group show -g "$RG" -n main --query properties.outputs -o json > outputs.json
           jq -r 'to_entries[] | "\(.key)=\(.value.value)"' outputs.json | tee -a $GITHUB_ENV
 
       - name: "4/6 · Cargar base de conocimiento (RAG)"
@@ -128,7 +158,7 @@ jobs:
             if [ "$CODE" = "200" ] && jq -e '.choices[0].message.content | length > 0' resp.json >/dev/null; then
               echo "✔ Amanda (anónimo) respondió:"; jq -r '.choices[0].message.content' resp.json
               jq -c '.amanda_trace' resp.json
-              if jq -e '.amanda_trace[] | select(.type=="model_error" or .type=="rag_error")' resp.json >/dev/null; then
+              if jq -e '(.amanda_trace // [])[] | select(.type=="model_error" or .type=="rag_error")' resp.json >/dev/null; then
                 echo "::error::Amanda respondió, pero hubo errores internos (ver amanda_trace)"; exit 1
               fi
               OK=1; break
